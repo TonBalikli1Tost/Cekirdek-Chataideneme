@@ -284,6 +284,23 @@ export function useCekirdekRoom() {
     setMuted(next)
   }, [muted])
 
+  const leave = useCallback(() => {
+    try { peerRef.current?.destroy() } catch {}
+    localStream.current?.getTracks().forEach((t) => t.stop())
+    audioEls.current.forEach((el) => el.remove())
+    dataConns.current.clear()
+    mediaConns.current.clear()
+    audioEls.current.clear()
+    profiles.current.clear()
+    peerRef.current = null
+    localStream.current = null
+    setStatus("idle")
+    setMembers([])
+    setMessages([])
+    setVoiceOn(false)
+    setMuted(false)
+  }, [])
+
   useEffect(() => {
     return () => {
       try {
@@ -302,6 +319,7 @@ export function useCekirdekRoom() {
     muted,
     room: roomRef.current,
     join,
+    leave,
     sendMessage,
     startVoice,
     stopVoice,
