@@ -320,27 +320,35 @@ export function useCekirdekRoom() {
       const entries = await sigGet(roomRef.current, selfRef.current.peerId)
       for (const e of entries) {
         const key = `${e.peerId}:${e.type}:${e.targetId ?? ""}`
-        if (e.type === "offer") {
-          // Offer: işlemedik mi?
+
+        if (e.type === "presence") {
+          // Yeni biri geldi: ona offer gönder (henüz bağlantı yoksa)
           if (!pcs.current.has(e.peerId) && !seenSignals.current.has(key)) {
             seenSignals.current.add(key)
-            await createAnswer(e.peerId, e.sdp!, e.publicKey)
+            await createOffer(e.peerId)
+          }
+        } else if (e.type === "offer") {
+          // Offer: işlemedik mi?
+          if (!pcs.current.has(e.peerId) && !seenSignals.current.has(key) && e.sdp) {
+            seenSignals.current.add(key)
+            await createAnswer(e.peerId, e.sdp, e.publicKey)
           }
         } else if (e.type === "answer") {
           // Answer: bize mi?
-          if (e.targetId === selfRef.current.peerId && !seenSignals.current.has(key)) {
+          if (e.targetId === selfRef.current.peerId && !seenSignals.current.has(key) && e.sdp) {
             seenSignals.current.add(key)
             const pc = pcs.current.get(e.peerId)
             if (pc && pc.signalingState === "have-local-offer") {
               try {
-                await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(e.sdp!)))
+                await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(e.sdp)))
               } catch {}
             }
           }
         } else if (e.type === "candidate") {
           // ICE candidate: bize mi?
-          if (e.targetId === selfRef.current.peerId && !seenSignals.current.has(`${e.peerId}:${e.candidate}`)) {
-            seenSignals.current.add(`${e.peerId}:${e.candidate!.slice(0,40)}`)
+          const candKey = `${e.peerId}:cand:${(e.candidate ?? "").slice(0, 40)}`
+          if (e.targetId === selfRef.current.peerId && !seenSignals.current.has(candKey)) {
+            seenSignals.current.add(candKey)
             const pc = pcs.current.get(e.peerId)
             if (pc && pc.remoteDescription) {
               try {
@@ -371,19 +379,28 @@ export function useCekirdekRoom() {
     const offers = entries.filter(e => e.type === "offer")
 
     if (offers.length === 0) {
-      // İlk kişi: offer yayınla, bağlantı kurmadan connected ol
-      await createOffer(`bootstrap-${peerId}`)  // self-offer trick: gerçek peer yok ama signal üretilir
-      // Aslında self peer'a bağlantı kurmak yerine sadece status güncelle
-      pcs.current.delete(`bootstrap-${peerId}`)
-      // Offer'ımızı API'ye doğrudan yaz (kendi PeerConnection'u yokken)
-      // createOffer zaten sigPost ile yazmış olmalı — temizle ve yeniden yaz
+      // İlk kişi: presence kaydı yaz, direkt connected
+      await sigPost({
+        room: roomRef.current,
+        peerId,
+        type: "presence",
+        publicKey: selfRef.current.publicKey,
+      })
       setStatus("connected")
     } else {
-      // Diğer peerlar var: hepsine answer gönder
+      // Odada peer var: hepsine answer ver (onlar bize offer atıp bağlanacak)
+      // Önce kendi presence'ımızı yaz ki yeni gelenler bizi de görsün
+      await sigPost({
+        room: roomRef.current,
+        peerId,
+        type: "presence",
+        publicKey: selfRef.current.publicKey,
+      })
+      // Offer sahibi peer'lara answer gönder
       for (const e of offers) {
-        if (e.peerId !== peerId) {
+        if (e.peerId !== peerId && e.sdp) {
           seenSignals.current.add(`${e.peerId}:offer:`)
-          await createAnswer(e.peerId, e.sdp!, e.publicKey)
+          await createAnswer(e.peerId, e.sdp, e.publicKey)
         }
       }
     }
@@ -394,7 +411,7 @@ export function useCekirdekRoom() {
     startPolling()
   }, [createAnswer, createOffer, pushMsg, startPolling])
 
-  // ── sendMessage ──────────────────────────────────────────────────────────
+  // ── sendMessage ──────────────��───────────────────────────────────────────
 
   const sendMessage = useCallback((text?: string, image?: string) => {
     if (!text?.trim() && !image) return

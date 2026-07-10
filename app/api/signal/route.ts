@@ -16,9 +16,10 @@ import { NextRequest, NextResponse } from "next/server"
 // ---- Global in-process store (warm lambda paylaşımı) ----
 type SignalEntry = {
   peerId: string
-  type: "offer" | "answer"
-  sdp: string
-  targetId?: string   // answer için kimin için
+  type: "offer" | "answer" | "candidate" | "presence"
+  sdp?: string
+  candidate?: string
+  targetId?: string   // answer / candidate için kimin için
   publicKey: string   // NaCl X25519 public key (base64)
   ts: number
 }
@@ -46,20 +47,29 @@ function gc() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { room, peerId, type, sdp, targetId, publicKey } = body as SignalEntry & { room: string }
+    const { room, peerId, type, sdp, candidate, targetId, publicKey } =
+      body as SignalEntry & { room: string }
 
-    if (!room || !peerId || !type || !sdp || !publicKey) {
+    if (!room || !peerId || !type || !publicKey) {
       return NextResponse.json({ error: "Eksik alan" }, { status: 400 })
     }
 
     gc()
     const entries = store.get(room) ?? []
 
-    // Aynı peerId + type varsa güncelle
-    const idx = entries.findIndex((e) => e.peerId === peerId && e.type === type)
-    const entry: SignalEntry = { peerId, type, sdp, targetId, publicKey, ts: Date.now() }
-    if (idx >= 0) entries[idx] = entry
-    else entries.push(entry)
+    if (type === "candidate") {
+      // ICE candidate'ları biriktir (duplikat ekleme)
+      const dup = entries.some(
+        (e) => e.type === "candidate" && e.candidate === candidate && e.targetId === targetId,
+      )
+      if (!dup) entries.push({ peerId, type, candidate, targetId, publicKey, ts: Date.now() })
+    } else {
+      // offer / answer / presence: aynı peerId + type varsa güncelle
+      const idx = entries.findIndex((e) => e.peerId === peerId && e.type === type)
+      const entry: SignalEntry = { peerId, type, sdp, candidate, targetId, publicKey, ts: Date.now() }
+      if (idx >= 0) entries[idx] = entry
+      else entries.push(entry)
+    }
 
     store.set(room, entries)
     return NextResponse.json({ ok: true })
