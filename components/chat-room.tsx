@@ -5,11 +5,13 @@ import { useEffect, useRef, useState } from "react"
 import {
   Hash,
   ImagePlus,
+  Lock,
   Mic,
   MicOff,
   PhoneOff,
   Phone,
   Send,
+  Shield,
   Users,
   Wifi,
   WifiOff,
@@ -229,6 +231,13 @@ export function ChatRoom({
             )}
             {status === "connected" ? "P2P bağlı" : "bağlanıyor…"}
           </span>
+          {/* E2EE badge */}
+          {status === "connected" && members.length > 1 && (
+            <span className="ml-1 flex items-center gap-1 rounded-full bg-dc-green/10 px-2 py-0.5 text-xs font-medium text-dc-green border border-dc-green/20">
+              <Shield className="size-3" />
+              E2EE
+            </span>
+          )}
 
           <div className="ml-auto flex items-center gap-2">
             {!voiceOn ? (
@@ -290,6 +299,11 @@ export function ChatRoom({
                         <span className="text-xs text-dc-muted">
                           {new Date(m.ts).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
                         </span>
+                        {m.encrypted && (
+                          <span title="Uçtan uca şifreli">
+                            <Lock className="size-3 text-dc-green opacity-70" />
+                          </span>
+                        )}
                       </div>
                       {m.text && <p className="whitespace-pre-wrap break-words text-dc-text">{m.text}</p>}
                       {m.image && (
